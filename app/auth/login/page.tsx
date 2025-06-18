@@ -1,8 +1,7 @@
-// app/auth/login/page.tsx
 "use client";
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { signInVendor, AuthFormState } from '@/lib/actions/authActions'; // Your auth actions
+import { signInVendor, AuthFormState } from '@/lib/actions/authActions';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -16,8 +15,8 @@ function SubmitButton() {
     <button type="submit" className="btn btn-gradient-green w-100 py-2" disabled={pending}>
       {pending ? (
         <>
-            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-            Logging In...
+          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+          Logging In...
         </>
       ) : 'Login'}
     </button>
@@ -26,16 +25,20 @@ function SubmitButton() {
 
 export default function LoginPage() {
   const [state, formAction] = useActionState(signInVendor, initialState);
+  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
-   useEffect(() => {
+  const togglePasswordVisibility = () => {
+    setShowPassword(!showPassword);
+  };
+
+  useEffect(() => {
     const checkInitialSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         const userRole = session.user.app_metadata?.role;
         if (userRole === 'vendor') router.push('/vendor/dashboard');
         else if (userRole === 'admin') router.push('/admin/dashboard');
-        // else router.push('/profile'); // For general users
       }
     };
     checkInitialSession();
@@ -46,13 +49,11 @@ export default function LoginPage() {
           const userRole = session.user.app_metadata?.role;
           if (userRole === 'vendor') router.push('/vendor/dashboard');
           else if (userRole === 'admin') router.push('/admin/dashboard');
-          // else router.push('/profile');
         }
       }
     );
     return () => authListener.subscription.unsubscribe();
   }, [router]);
-
 
   return (
     <div className="container auth-container">
@@ -62,7 +63,7 @@ export default function LoginPage() {
             <div className="card-body">
               <div className="auth-logo">
                 <div className="logo-icon-wrapper bg-gradient-green-to-blue">
-                    <i className="bi bi-leaf-fill text-white"></i>
+                  <i className="bi bi-leaf-fill text-white"></i>
                 </div>
                 <h1 className="brand-text text-gradient-green-blue mb-0">Village Essence</h1>
               </div>
@@ -72,9 +73,26 @@ export default function LoginPage() {
                   <label htmlFor="email" className="form-label">Email Address</label>
                   <input type="email" name="email" id="email" className="form-control" required placeholder="you@example.com" />
                 </div>
-                <div className="mb-4"> {/* Increased bottom margin */}
+                <div className="mb-4">
                   <label htmlFor="password" className="form-label">Password</label>
-                  <input type="password" name="password" id="password" className="form-control" required placeholder="••••••••" />
+                  <div className="input-group">
+                    <input 
+                      type={showPassword ? "text" : "password"} 
+                      name="password" 
+                      id="password" 
+                      className="form-control" 
+                      required 
+                      placeholder="••••••••" 
+                    />
+                    <button 
+                      className="btn btn-outline-secondary" 
+                      type="button" 
+                      onClick={togglePasswordVisibility}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      <i className={`bi ${showPassword ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+                    </button>
+                  </div>
                 </div>
                 {state?.message && (
                   <div className={`alert ${state.type === 'error' ? 'alert-danger' : 'alert-success'} mt-3 py-2`}>
@@ -90,7 +108,7 @@ export default function LoginPage() {
                 <p className="mb-0">
                   Don't have an account? <Link href="/auth/signup">Register here</Link>
                 </p>
-                 <p className="mt-2">
+                <p className="mt-2">
                   <Link href="/">← Back to Home</Link>
                 </p>
               </div>
