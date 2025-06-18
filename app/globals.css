@@ -1,0 +1,114 @@
+@import url('https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css');
+
+:root {
+  --bs-background: #ffffff;
+  --bs-foreground: #1a1a1a;
+  --bs-card: #ffffff;
+  --bs-card-foreground: #1a1a1a;
+  --bs-popover: #ffffff;
+  --bs-popover-foreground: #1a1a1a;
+  --bs-primary: #0d6efd; /* Bootstrap primary (blue) */
+  --bs-primary-foreground: #ffffff;
+  --bs-secondary: #f8f9fa;
+  --bs-secondary-foreground: #1a1a1a;
+  --bs-muted: #6c757d;
+  --bs-muted-foreground: #6c757d;
+  --bs-accent: #f8f9fa;
+  --bs-accent-foreground: #1a1a1a;
+  --bs-destructive: #dc3545;
+  --bs-destructive-foreground: #ffffff;
+  --bs-border: #dee2e6;
+  --bs-input: #dee2e6;
+  --bs-ring: #0d6efd;
+  --bs-success: #28a745; /* Green for Village Essence theme */
+  --bs-info: #17a2b8; /* Blue for gradient pairing */
+  --bs-warning: #ffc107;
+  --bs-danger: #dc3545;
+  --bs-radius: 0.5rem;
+  --bs-font-family: 'Inter', sans-serif;
+}
+
+[data-bs-theme="dark"] {
+  --bs-background: #1a1a1a;
+  --bs-foreground: #f8f9fa;
+  --bs-card: #1a1a1a;
+  --bs-card-foreground: #f8f9fa;
+  --bs-popover: #1a1a1a;
+  --bs-popover-foreground: #f8f9fa;
+  --bs-primary: #f8f9fa;
+  --bs-primary-foreground: #1a1a1a;
+  --bs-secondary: #343a40;
+  --bs-secondary-foreground: #f8f9fa;
+  --bs-muted: #6c757d;
+  --bs-muted-foreground: #adb5bd;
+  --bs-accent: #343a40;
+  --bs-accent-foreground: #f8f9fa;
+  --bs-destructive: #dc3545;
+  --bs-destructive-foreground: #f8f9fa;
+  --bs-border: #343a40;
+  --bs-input: #343a40;
+  --bs-ring: #adb5bd;
+}
+
+body {
+  font-family: var(--bs-font-family);
+  background-color: var(--bs-background);
+  color: var(--bs-foreground);
+}
+
+* {
+  border-color: var(--bs-border);
+}
+
+.transition-transform {
+  transition: transform 0.3s ease;
+}
+
+.hover-scale:hover {
+  transform: scale(1.05);
+}
+
+.group-hover-translate {
+  transition: transform 0.3s ease;
+}
+
+.group:hover .group-hover-translate {
+  transform: translateX(5px);
+}
+
+.bg-gradient-to-r {
+  background: linear-gradient(to right, var(--bs-success), var(--bs-primary));
+}
+
+.bg-gradient-to-br {
+  background: linear-gradient(to bottom right, var(--bs-success), var(--bs-primary));
+}
+
+.text-transparent {
+  -webkit-text-fill-color: transparent;
+}
+
+.bg-clip-text {
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.card {
+  border-radius: var(--bs-radius);
+}
+
+.btn {
+  border-radius: var(--bs-radius);
+}
+
+.rounded-pill {
+  border-radius: 50rem !important;
+}
+
+.navbar {
+  --bs-navbar-nav-link-padding-x: 1rem;
+}
+
+.nav-link:hover {
+  color: var(--bs-success);
+}

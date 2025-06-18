@@ -1,0 +1,459 @@
+-- Village Essence E-commerce Platform Database Schema
+-- Run this in your Supabase SQL Editor
+-- WITH CASCADE DELETES ENABLED
+
+-- First, let's create custom types for enums
+CREATE TYPE user_role AS ENUM ('admin', 'vendor');
+CREATE TYPE gender_type AS ENUM ('male', 'female', 'other', 'prefer_not_to_say');
+CREATE TYPE order_status AS ENUM ('pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled');
+
+-- Categories table with markup percentages
+CREATE TABLE categories (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    markup_percentage DECIMAL(5,2) DEFAULT 10.00, -- Default 10% markup
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Insert default categories with different markup percentages
+INSERT INTO categories (name, markup_percentage, description) VALUES
+('Food', 10.00, 'Food and beverages'),
+('Electronics', 15.00, 'Electronic items and gadgets'),
+('Clothing', 20.00, 'Clothing and fashion items'),
+('Home & Garden', 12.00, 'Home and garden products'),
+('Books', 8.00, 'Books and educational materials'),
+('Sports', 18.00, 'Sports and fitness equipment'),
+('Beauty', 25.00, 'Beauty and personal care products'),
+('Toys', 15.00, 'Toys and games'),
+('Automotive', 12.00, 'Automotive parts and accessories'),
+('Health', 20.00, 'Health and wellness products');
+
+-- Vendors table (extends Supabase auth.users)
+CREATE TABLE vendors (
+    id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    phone_number VARCHAR(20) NOT NULL,
+    age INTEGER CHECK (age >= 18 AND age <= 120),
+    gender gender_type,
+    profile_picture_url TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Products table (CASCADE DELETE when vendor or category is deleted)
+CREATE TABLE products (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    vendor_id UUID REFERENCES vendors(id) ON DELETE CASCADE NOT NULL,
+    category_id UUID REFERENCES categories(id) ON DELETE CASCADE NOT NULL, -- Changed from RESTRICT to CASCADE
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    base_price DECIMAL(10,2) NOT NULL CHECK (base_price > 0),
+    quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Product images table (multiple images per product)
+CREATE TABLE product_images (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE NOT NULL,
+    image_url TEXT NOT NULL,
+    alt_text VARCHAR(255),
+    display_order INTEGER DEFAULT 0,
+    is_primary BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Customers table (no authentication required)
+CREATE TABLE customers (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255), -- Optional
+    phone_number VARCHAR(20) NOT NULL,
+    address TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Orders table (CASCADE DELETE when customer is deleted)
+CREATE TABLE orders (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    customer_id UUID REFERENCES customers(id) ON DELETE CASCADE NOT NULL, -- Changed from RESTRICT to CASCADE
+    order_number VARCHAR(50) UNIQUE NOT NULL,
+    total_amount DECIMAL(10,2) NOT NULL CHECK (total_amount > 0),
+    status order_status DEFAULT 'pending',
+    order_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Order items table (PRESERVE ORDERS when products/vendors are deleted)
+CREATE TABLE order_items (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id UUID REFERENCES orders(id) ON DELETE CASCADE NOT NULL,
+    product_id UUID REFERENCES products(id) ON DELETE SET NULL, -- Preserve order, set product_id to NULL
+    vendor_id UUID REFERENCES vendors(id) ON DELETE SET NULL, -- Preserve order, set vendor_id to NULL
+    product_name VARCHAR(255), -- Store product name to preserve order history
+    vendor_name VARCHAR(255), -- Store vendor name to preserve order history
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price DECIMAL(10,2) NOT NULL CHECK (unit_price > 0), -- Frontend price (with markup)
+    base_unit_price DECIMAL(10,2) NOT NULL CHECK (base_unit_price > 0), -- Vendor's original price
+    total_price DECIMAL(10,2) NOT NULL CHECK (total_price > 0),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create indexes for better performance
+CREATE INDEX idx_products_vendor_id ON products(vendor_id);
+CREATE INDEX idx_products_category_id ON products(category_id);
+CREATE INDEX idx_products_active ON products(is_active);
+CREATE INDEX idx_product_images_product_id ON product_images(product_id);
+CREATE INDEX idx_orders_customer_id ON orders(customer_id);
+CREATE INDEX idx_orders_status ON orders(status);
+CREATE INDEX idx_orders_date ON orders(order_date);
+CREATE INDEX idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX idx_order_items_product_id ON order_items(product_id);
+CREATE INDEX idx_order_items_vendor_id ON order_items(vendor_id);
+CREATE INDEX idx_vendors_email ON vendors(email);
+CREATE INDEX idx_vendors_active ON vendors(is_active);
+
+-- Function to generate order numbers
+CREATE OR REPLACE FUNCTION generate_order_number()
+RETURNS TEXT AS $$
+DECLARE
+    new_number TEXT;
+    counter INTEGER;
+BEGIN
+    -- Get current date in YYYYMMDD format
+    SELECT TO_CHAR(NOW(), 'YYYYMMDD') INTO new_number;
+    
+    -- Get count of orders today
+    SELECT COUNT(*) + 1 INTO counter
+    FROM orders 
+    WHERE DATE(created_at) = CURRENT_DATE;
+    
+    -- Combine date with counter (padded to 4 digits)
+    new_number := 'VE' || new_number || LPAD(counter::TEXT, 4, '0');
+    
+    RETURN new_number;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to automatically set order number
+CREATE OR REPLACE FUNCTION set_order_number()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.order_number IS NULL OR NEW.order_number = '' THEN
+        NEW.order_number := generate_order_number();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to auto-generate order number
+CREATE TRIGGER trigger_set_order_number
+    BEFORE INSERT ON orders
+    FOR EACH ROW
+    EXECUTE FUNCTION set_order_number();
+
+-- Function to populate product and vendor names in order items
+CREATE OR REPLACE FUNCTION populate_order_item_names()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Get product name if product_id is provided
+    IF NEW.product_id IS NOT NULL THEN
+        SELECT name INTO NEW.product_name
+        FROM products
+        WHERE id = NEW.product_id;
+    END IF;
+    
+    -- Get vendor name if vendor_id is provided
+    IF NEW.vendor_id IS NOT NULL THEN
+        SELECT name INTO NEW.vendor_name
+        FROM vendors
+        WHERE id = NEW.vendor_id;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to populate names before inserting order items
+CREATE TRIGGER populate_order_item_names_trigger
+    BEFORE INSERT ON order_items
+    FOR EACH ROW
+    EXECUTE FUNCTION populate_order_item_names();
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Triggers for updated_at columns
+CREATE TRIGGER update_vendors_updated_at
+    BEFORE UPDATE ON vendors
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_products_updated_at
+    BEFORE UPDATE ON products
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_orders_updated_at
+    BEFORE UPDATE ON orders
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_categories_updated_at
+    BEFORE UPDATE ON categories
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Function to calculate frontend price with markup
+CREATE OR REPLACE FUNCTION calculate_frontend_price(base_price DECIMAL, category_id UUID)
+RETURNS DECIMAL AS $$
+DECLARE
+    markup_percent DECIMAL;
+    frontend_price DECIMAL;
+BEGIN
+    -- Get markup percentage for the category
+    SELECT markup_percentage INTO markup_percent
+    FROM categories
+    WHERE id = category_id;
+    
+    -- If category not found, default to 10%
+    IF markup_percent IS NULL THEN
+        markup_percent := 10.00;
+    END IF;
+    
+    -- Calculate frontend price
+    frontend_price := base_price + (base_price * markup_percent / 100);
+    
+    RETURN ROUND(frontend_price, 2);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create a view for products with frontend prices
+CREATE OR REPLACE VIEW products_with_frontend_price AS
+SELECT 
+    p.*,
+    c.name as category_name,
+    c.markup_percentage,
+    calculate_frontend_price(p.base_price, p.category_id) as frontend_price,
+    v.name as vendor_name,
+    v.profile_picture_url as vendor_profile_picture,
+    (
+        SELECT json_agg(
+            json_build_object(
+                'id', pi.id,
+                'image_url', pi.image_url,
+                'alt_text', pi.alt_text,
+                'display_order', pi.display_order,
+                'is_primary', pi.is_primary
+            ) ORDER BY pi.display_order, pi.created_at
+        )
+        FROM product_images pi 
+        WHERE pi.product_id = p.id
+    ) as images
+FROM products p
+JOIN categories c ON p.category_id = c.id
+JOIN vendors v ON p.vendor_id = v.id
+WHERE p.is_active = true AND v.is_active = true;
+
+-- Create a view for order details with all related information
+CREATE OR REPLACE VIEW order_details AS
+SELECT 
+    o.*,
+    c.name as customer_name,
+    c.email as customer_email,
+    c.phone_number as customer_phone,
+    c.address as customer_address,
+    json_agg(
+        json_build_object(
+            'item_id', oi.id,
+            'product_id', oi.product_id,
+            'product_name', COALESCE(p.name, oi.product_name, 'Product Deleted'), -- Use stored name if product is deleted
+            'vendor_id', oi.vendor_id,
+            'vendor_name', COALESCE(v.name, oi.vendor_name, 'Vendor Deleted'), -- Use stored name if vendor is deleted
+            'vendor_email', v.email,
+            'vendor_phone', v.phone_number,
+            'quantity', oi.quantity,
+            'unit_price', oi.unit_price,
+            'base_unit_price', oi.base_unit_price,
+            'total_price', oi.total_price,
+            'category_name', cat.name
+        ) ORDER BY oi.created_at
+    ) as items
+FROM orders o
+JOIN customers c ON o.customer_id = c.id
+JOIN order_items oi ON o.id = oi.order_id
+LEFT JOIN products p ON oi.product_id = p.id -- LEFT JOIN to handle deleted products
+LEFT JOIN vendors v ON oi.vendor_id = v.id -- LEFT JOIN to handle deleted vendors
+LEFT JOIN categories cat ON p.category_id = cat.id
+GROUP BY o.id, c.id;
+
+-- DISABLE RLS (Row Level Security) for all tables as requested
+ALTER TABLE categories DISABLE ROW LEVEL SECURITY;
+ALTER TABLE vendors DISABLE ROW LEVEL SECURITY;
+ALTER TABLE products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE product_images DISABLE ROW LEVEL SECURITY;
+ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE order_items DISABLE ROW LEVEL SECURITY;
+
+-- Set up authentication roles
+-- Note: Supabase handles user creation, but we need to ensure proper role assignment
+
+-- Function to handle new user registration
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Set default role as 'vendor' in auth.users metadata
+    UPDATE auth.users
+    SET raw_app_meta_data = COALESCE(raw_app_meta_data, '{}'::jsonb) || '{"role": "vendor"}'::jsonb
+    WHERE id = NEW.id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger for new user registration
+CREATE OR REPLACE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_new_user();
+
+-- Insert a default admin user (you'll need to create this user in Supabase Auth first)
+-- Then update their role to admin
+-- UPDATE auth.users SET raw_app_meta_data = '{"role": "admin"}' WHERE email = 'admin@villageessence.com';
+
+-- Sample data for testing (optional)
+-- You can uncomment these if you want some sample data
+
+/*
+-- Insert sample vendor (you'll need to create the auth user first)
+INSERT INTO vendors (id, name, email, phone_number, age, gender) VALUES
+('00000000-0000-0000-0000-000000000001', 'John Doe', 'john@example.com', '+1234567890', 35, 'male');
+
+-- Insert sample products
+INSERT INTO products (vendor_id, category_id, name, description, base_price, quantity) VALUES
+('00000000-0000-0000-0000-000000000001', (SELECT id FROM categories WHERE name = 'Food'), 'Organic Cake', 'Delicious organic chocolate cake', 50.00, 10),
+('00000000-0000-0000-0000-000000000001', (SELECT id FROM categories WHERE name = 'Electronics'), 'Smartphone', 'Latest smartphone with great features', 500.00, 5);
+*/
+
+-- Grant necessary permissions
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
+
+-- Success message
+SELECT 'Village Essence database schema with CASCADE DELETES created successfully!' as message;
+
+-- CASCADE DELETE BEHAVIOR SUMMARY:
+-- 1. Delete a VENDOR → Their products and product images will be deleted, but ORDERS ARE PRESERVED
+--    - vendor_id in order_items becomes NULL, vendor_name is preserved for history
+-- 2. Delete a CATEGORY → All products in that category and their images will be deleted, but ORDERS ARE PRESERVED
+-- 3. Delete a PRODUCT → Product images will be deleted, but ORDERS ARE PRESERVED
+--    - product_id in order_items becomes NULL, product_name is preserved for history
+-- 4. Delete a CUSTOMER → All their orders and order items will be deleted
+-- 5. Delete an ORDER → All order items for that order will be deleted
+-- 6. Delete from auth.users → The corresponding vendor record will be deleted
+
+-- IMPORTANT: To preserve order history when inserting order items, use triggers or application logic
+-- to populate product_name and vendor_name fields from the referenced records.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- In Supabase SQL Editor
+CREATE OR REPLACE FUNCTION decrease_product_quantity(p_id UUID, p_quantity_to_decrease INT)
+RETURNS JSON -- Or just returns products row
+AS $$
+DECLARE
+  updated_product record;
+BEGIN
+  UPDATE products
+  SET quantity = quantity - p_quantity_to_decrease
+  WHERE id = p_id AND quantity >= p_quantity_to_decrease
+  RETURNING * INTO updated_product;
+
+  IF NOT FOUND THEN
+    -- This means product not found or quantity was insufficient
+    RAISE EXCEPTION 'Product not found or insufficient stock for product ID %', p_id;
+  END IF;
+
+  RETURN row_to_json(updated_product);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- Use SECURITY DEFINER if called from less privileged roles but function needs higher perms
+-- GRANT EXECUTE ON FUNCTION decrease_product_quantity(UUID, INT) TO authenticated; -- Or relevant role
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- admin
+-- Admin query
+
+SELECT id FROM auth.users WHERE email = 'salmanbnr@gmail.com';
+INSERT INTO vendors (id, role) VALUES ('8cd76c4c-4daf-41c7-8171-6d528ced5fff', 'admin');
+UPDATE vendors SET role = 'admin' WHERE id = '8cd76c4c-4daf-41c7-8171-6d528ced5fff';
+SELECT role FROM vendors WHERE id = '8cd76c4c-4daf-41c7-8171-6d528ced5fff';
+
+
+----
+-- First, create a function to update user metadata
+CREATE OR REPLACE FUNCTION public.set_user_role(uid UUID, new_role TEXT)
+RETURNS void AS $$
+BEGIN
+  UPDATE auth.users
+  SET raw_app_meta_data = jsonb_set(raw_app_meta_data, '{role}', to_jsonb(new_role::text), true)
+  WHERE id = uid;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+SELECT public.set_user_role('39f8fbc3-88d6-49cb-8e44-39c0590b370b', 'admin');
