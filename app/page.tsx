@@ -17,7 +17,7 @@ async function getFeaturedProducts(): Promise<Product[]> {
     .select('*')
     .eq('is_active', true)
     // .order('created_at', { ascending: false }) // Example: newest products
-    .limit(8);
+    .limit(4);
 
   if (error) {
     console.error('Error fetching featured products:', error);
